@@ -18,54 +18,57 @@ if [ "$?" == "0" ]; then
 	exit
 fi
 # check if the queue is stopped because it got full
-if [ "$(grep BE /sys/kernel/debug/ieee80211/phy0/ath9k/queues | cut -d":" -f7 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')" -eq 0 ]; then
-	STOPPEDQUEUE=0
-else
+STOPPEDQUEUE=0
+if [ "$(grep BE /sys/kernel/debug/ieee80211/phy0/ath9k/queues | cut -d":" -f7 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')" -ne 0 ]; then
 	STOPPEDQUEUE=1
 	echo "observed a stopped queue. continuing."
 fi
 # check if there are calibration errors
-if [ "$(grep Calibration /sys/kernel/debug/ieee80211/phy0/ath9k/reset | cut -d":" -f2 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')" -eq 0  ]; then
-	CALIBERRORS=0
-else
+CALIBERRORS=0
+if [ "$(grep Calibration /sys/kernel/debug/ieee80211/phy0/ath9k/reset | cut -d":" -f2 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')" -ne 0 ]; then
 	CALIBERRORS=1
 	echo "observed a calibration error. continuing."
 fi
-# abort if neither stopped queue nor calibration errors appeared
-if [ "$STOPPEDQUEUE" -eq 0 ] && [ "$CALIBERRORS" -eq 0 ]; then
-	echo "no errors observed, aborting."
-	exit
+# check if there are TX Path Hangs
+TXPATHHANG=0
+if [ "$(grep "TX Path Hang" /sys/kernel/debug/ieee80211/phy0/ath9k/reset | cut -d":" -f2 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')" -ne 0 ]; then
+	TXPATHHANG=1
+	echo "observed a TX Path Hang. continuing."
 fi
+# abort if none of the problem indicators appeared
+PROBLEMS=1
+if [ "$STOPPEDQUEUE" -eq 0 ] && [ "$CALIBERRORS" -eq 0 ] && [ "$TXPATHHANG" -eq 0 ]; then
+	PROBLEMS=0
+	echo "no problem indicators observed."
+fi
+WIFICONNECTIONS=0
 # check if there are connections to other nodes via wireless meshing
 batctl o | egrep -q "ibss0|mesh0"
 if [ "$?" == "0" ]; then
-	MESHPARTNERS="1"
+	WIFICONNECTIONS=1
 	echo "found wifi mesh partners."
-fi
-# check for clients on each wifi device
-iw dev | grep Interface | cut -d" " -f2 | while read wifidev; do
-	iw dev $wifidev station dump 2>/dev/null | grep -q Station
-	if [ "$?" == "0" ]; then
-		WIFICLIENTS="1"
-		echo "found clients on wifi device $wifidev."
-	fi
-done
-TMPFILE="/tmp/wifi-connections-active"
-# restart wifi only, if there were connections after the last wifi restart and they vanished again
-if [ "$MESHPARTNERS" == "1" ] || [ "$WIFICLIENTS" == "1" ]; then
-	if [ -f "$TMPFILE" ]; then
-		echo "everything seems to be ok, aborting."
-		exit
-	else
-		echo "there are clients again after a previous boot or wifi restart, creating tempfile."
-		touch $TMPFILE
-		exit
-	fi
 else
-	if [ -f "$TMPFILE" ]; then
-		wifi
-		echo "$(date +%Y-%m-%d:%H:%M:%S)" > /tmp/wifi-last-restart-reasons-calib${CALIBERRORS}-queue${STOPPEDQUEUE}
-		echo "there were clients before, but they vanished. restarted wifi and deleting tempfile."
-		rm $TMPFILE
-	fi
+	# check for clients on each wifi device
+	iw dev | grep Interface | cut -d" " -f2 | while read wifidev; do
+		iw dev $wifidev station dump 2>/dev/null | grep -q Station
+		if [ "$?" == "0" ]; then
+			WIFICONNECTIONS=1
+			echo "found wifi clients."
+			break
+		fi
+	done
+fi
+TMPFILE="/tmp/wifi-connections-active"
+# restart wifi only, if there were connections after the last wifi restart or reboot and they vanished again
+if [ ! -f "$TMPFILE" ] && [ "$WIFICONNECTIONS" -eq 1 ]; then
+	echo "there are connections again after a previous boot or wifi restart, creating tempfile."
+	touch $TMPFILE
+elif [ -f "$TMPFILE" ] && [ "$WIFICONNECTIONS" -eq 0 ] && [ "$PROBLEMS" -eq 1 ]; then
+	# there were connections before, but there are none at the moment and there are problem indicators
+	wifi
+	echo "$(date +%Y-%m-%d:%H:%M:%S)" > /tmp/wifi-last-restart-reasons-calib${CALIBERRORS}-queue${STOPPEDQUEUE}-tph${TXPATHHANG}
+	echo "there were connections before, but they vanished. restarted wifi and deleting tempfile."
+	rm $TMPFILE
+else
+	echo "everything seems to be ok."
 fi
