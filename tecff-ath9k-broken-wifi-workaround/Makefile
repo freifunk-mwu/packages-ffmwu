@@ -12,7 +12,7 @@ define Package/tecff-ath9k-broken-wifi-workaround
   SECTION:=tecff
   CATEGORY:=Customization
   TITLE:=ath9k broken wifi workaround
-  DEPENDS:=+gluon-core
+  DEPENDS:=+gluon-core +micrond
 endef
 
 define Build/Prepare
