@@ -48,15 +48,19 @@ if [ "$?" == "0" ]; then
 	WIFICONNECTIONS=1
 	echo "found wifi mesh partners."
 else
+	PIPE=$(mktemp -u -t workaround-pipe-XXXXXX)
 	# check for clients on each wifi device
-	iw dev | grep Interface | cut -d" " -f2 | while read wifidev; do
+	mkfifo $PIPE
+	iw dev | grep Interface | cut -d" " -f2 > $PIPE &
+	while read wifidev; do
 		iw dev $wifidev station dump 2>/dev/null | grep -q Station
 		if [ "$?" == "0" ]; then
 			WIFICONNECTIONS=1
 			echo "found wifi clients."
 			break
 		fi
-	done
+	done < $PIPE
+	rm $PIPE
 fi
 TMPFILE="/tmp/wifi-connections-active"
 # restart wifi only, if there were connections after the last wifi restart or reboot and they vanished again
