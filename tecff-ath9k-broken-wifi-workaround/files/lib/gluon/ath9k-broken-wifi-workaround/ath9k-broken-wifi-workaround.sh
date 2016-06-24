@@ -43,15 +43,17 @@ if [ "$STOPPEDQUEUE" -eq 0 ] && [ "$CALIBERRORS" -eq 0 ] && [ "$TXPATHHANG" -eq 
 fi
 WIFICONNECTIONS=0
 # check if there are connections to other nodes via wireless meshing
-batctl o | egrep -q "ibss0|mesh0"
-if [ "$?" == "0" ]; then
+if [ "$(batctl o | egrep "ibss0|mesh0" | wc -l)" -gt 0 ]; then
 	WIFICONNECTIONS=1
 	echo "found wifi mesh partners."
+elif [ "$(batctl tl | grep W | wc -l)" -gt 0 ]; then
+	WIFICONNECTIONS=1
+	echo "found batman local clients."
 else
 	PIPE=$(mktemp -u -t workaround-pipe-XXXXXX)
 	# check for clients on each wifi device
 	mkfifo $PIPE
-	iw dev | grep Interface | cut -d" " -f2 > $PIPE &
+	iw dev | grep Interface | cut -d" " -f2 | grep -v client > $PIPE &
 	while read wifidev; do
 		iw dev $wifidev station dump 2>/dev/null | grep -q Station
 		if [ "$?" == "0" ]; then
