@@ -47,13 +47,14 @@ if [ "$(batctl o | egrep "ibss0|mesh0" | wc -l)" -gt 0 ]; then
 	WIFICONNECTIONS=1
 	echo "found wifi mesh partners."
 elif [ "$(batctl tl | grep W | wc -l)" -gt 0 ]; then
+	# note: this doesn't help if the clients are on 5GHz, which might be unaffected by the bug
 	WIFICONNECTIONS=1
 	echo "found batman local clients."
 else
 	PIPE=$(mktemp -u -t workaround-pipe-XXXXXX)
-	# check for clients on each wifi device
+	# check for clients on private wifi device
 	mkfifo $PIPE
-	iw dev | grep Interface | cut -d" " -f2 | grep -v client > $PIPE &
+	iw dev | grep "Interface wlan0" | cut -d" " -f2 > $PIPE &
 	while read wifidev; do
 		iw dev $wifidev station dump 2>/dev/null | grep -q Station
 		if [ "$?" == "0" ]; then
