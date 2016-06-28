@@ -17,30 +17,6 @@ if [ "$?" == "0" ]; then
 	echo "autoupdater is running, aborting."
 	exit
 fi
-# check if the queue is stopped because it got full
-STOPPEDQUEUE=0
-if [ "$(grep BE /sys/kernel/debug/ieee80211/phy0/ath9k/queues | cut -d":" -f7 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')" -ne 0 ]; then
-	STOPPEDQUEUE=1
-	echo "observed a stopped queue. continuing."
-fi
-# check if there are calibration errors
-CALIBERRORS=0
-if [ "$(grep Calibration /sys/kernel/debug/ieee80211/phy0/ath9k/reset | cut -d":" -f2 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')" -ne 0 ]; then
-	CALIBERRORS=1
-	echo "observed a calibration error. continuing."
-fi
-# check if there are TX Path Hangs
-TXPATHHANG=0
-if [ "$(grep "TX Path Hang" /sys/kernel/debug/ieee80211/phy0/ath9k/reset | cut -d":" -f2 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')" -ne 0 ]; then
-	TXPATHHANG=1
-	echo "observed a TX Path Hang. continuing."
-fi
-# abort if none of the problem indicators appeared
-PROBLEMS=1
-if [ "$STOPPEDQUEUE" -eq 0 ] && [ "$CALIBERRORS" -eq 0 ] && [ "$TXPATHHANG" -eq 0 ]; then
-	PROBLEMS=0
-	echo "no problem indicators observed."
-fi
 WIFICONNECTIONS=0
 # check if there are connections to other nodes via wireless meshing
 if [ "$(batctl o | egrep "ibss0|mesh0" | wc -l)" -gt 0 ]; then
@@ -70,10 +46,10 @@ TMPFILE="/tmp/wifi-connections-active"
 if [ ! -f "$TMPFILE" ] && [ "$WIFICONNECTIONS" -eq 1 ]; then
 	echo "there are connections again after a previous boot or wifi restart, creating tempfile."
 	touch $TMPFILE
-elif [ -f "$TMPFILE" ] && [ "$WIFICONNECTIONS" -eq 0 ] && [ "$PROBLEMS" -eq 1 ]; then
-	# there were connections before, but there are none at the moment and there are problem indicators
+elif [ -f "$TMPFILE" ] && [ "$WIFICONNECTIONS" -eq 0 ]; then
+	# there were connections before, but they disappeared since the last check
 	wifi
-	echo "$(date +%Y-%m-%d:%H:%M:%S)" > /tmp/wifi-last-restart-reasons-calib${CALIBERRORS}-queue${STOPPEDQUEUE}-tph${TXPATHHANG}
+	echo "$(date +%Y-%m-%d:%H:%M:%S)" > /tmp/wifi-last-restart
 	echo "there were connections before, but they vanished. restarted wifi and deleting tempfile."
 	rm $TMPFILE
 else
