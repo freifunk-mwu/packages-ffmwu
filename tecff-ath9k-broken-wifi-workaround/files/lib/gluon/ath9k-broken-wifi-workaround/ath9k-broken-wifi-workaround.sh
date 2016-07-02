@@ -32,7 +32,7 @@ RESTARTFILE="/tmp/wifi-restart-pending"
 
 # check if there are connections to other nodes via wireless meshing
 WIFIMESHCONNECTIONS=0
-if [ "$(batctl o | egrep "ibss0|mesh0" | wc -l)" -gt 0 ]; then
+if [ "$(batctl o | egrep "(ibss0|mesh0)]" | wc -l)" -gt 0 ]; then
 	WIFIMESHCONNECTIONS=1
 	echo "found wifi mesh partners."
 	if [ ! -f "$MESHFILE" ]; then
