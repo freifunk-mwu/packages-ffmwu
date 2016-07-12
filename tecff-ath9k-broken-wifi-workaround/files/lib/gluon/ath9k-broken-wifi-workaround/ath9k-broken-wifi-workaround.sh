@@ -29,6 +29,7 @@ CLIENTFILE="/tmp/wifi-ff-client-connection-active"
 PRIVCLIENTFILE="/tmp/wifi-priv-client-connection-active"
 GWFILE="/tmp/gateway-connection-active"
 RESTARTFILE="/tmp/wifi-restart-pending"
+RESTARTINFOFILE="/tmp/wifi-last-restart-marker-file"
 
 # check if there are connections to other nodes via wireless meshing
 WIFIMESHCONNECTIONS=0
@@ -115,6 +116,7 @@ elif [ "$WIFIRESTART" -eq 1 ]; then
 	rm -f $CLIENTFILE
 	rm -f $PRIVCLIENTFILE
 	rm -f $RESTARTFILE
+	touch $RESTARTINFOFILE
 	wifi
 else
 	echo "everything seems to be ok."
