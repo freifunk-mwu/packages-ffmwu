@@ -58,7 +58,7 @@ fi
 WIFIPRIVCONNECTIONS=0
 PIPE=$(mktemp -u -t workaround-pipe-XXXXXX)
 mkfifo $PIPE
-iw dev | grep "Interface wlan0" | cut -d" " -f2 > $PIPE &
+iw dev | grep "Interface wlan" | cut -d" " -f2 > $PIPE &
 while read wifidev; do
 	iw dev $wifidev station dump 2>/dev/null | grep -q Station
 	if [ "$?" == "0" ]; then
