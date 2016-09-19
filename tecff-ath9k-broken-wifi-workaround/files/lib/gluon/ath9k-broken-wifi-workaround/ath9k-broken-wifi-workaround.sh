@@ -24,21 +24,19 @@ if [ "$?" == "0" ]; then
 fi
 
 # don't run this script if another instance is still running
-# this uses two separate lock files to make the script exit instead of waiting for a lock
+LOCKFILE="/var/lock/tecff-ath9k-broken-wifi-workaround.lock"
 cleanup() {
-	echo "Cleaning stuff up..."
-	rm /var/lock/ath9k-broken-wifi-workaround.lock-long
+	echo "cleanup, removing lockfile: $LOCKFILE"
+	rm -f "$LOCKFILE"
 	exit
 }
-lock /var/lock/ath9k-broken-wifi-workaround.lock-short
-if [ -e /var/lock/ath9k-broken-wifi-workaround.lock-long ]; then
-	lock -u /var/lock/ath9k-broken-wifi-workaround.lock-short
-	echo "another instance of this script is already running, aborting."
+if ( set -o noclobber; echo "$$" > "$LOCKFILE" ) 2> /dev/null; then
+	trap cleanup INT TERM
+else
+	echo "failed to acquire lockfile: $LOCKFILE"
+	echo "another instance of this script might still be running, aborting."
 	exit
 fi
-touch /var/lock/ath9k-broken-wifi-workaround.lock-long
-lock -u /var/lock/ath9k-broken-wifi-workaround.lock-short
-trap cleanup INT TERM
 
 # check if node uses ath9k wifi driver
 for i in $(ls /sys/class/net/); do
@@ -69,6 +67,7 @@ done
 # check if the ath9k interface list is empty
 if [ -z "$ATH9K_IFS" ] || [ -z "$ATH9K_DEVS" ]; then
 	echo "node doesn't use the ath9k wifi driver, aborting."
+	cleanup
 	exit
 fi
 
