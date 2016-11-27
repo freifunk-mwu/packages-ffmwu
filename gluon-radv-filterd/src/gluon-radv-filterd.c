@@ -44,6 +44,7 @@
 
 #define DEBUGFS "/sys/kernel/debug/batman_adv/%s/"
 #define ORIGINATORS DEBUGFS "originators"
+#define GATEWAYS DEBUGFS "gateways"
 #define TRANSTABLE_GLOBAL DEBUGFS "transtable_global"
 #define TRANSTABLE_LOCAL DEBUGFS "transtable_local"
 
@@ -335,6 +336,8 @@ static void update_tqs() {
 			foreach(router, G.routers) {
 				if (!memcmp(router->src, mac_a, sizeof(macaddr_t))) {
 					memcpy(router->originator, mac_b, sizeof(macaddr_t));
+					DEBUG_MSG("Found originator " F_MAC" for " F_MAC "",
+						F_MAC_VAR(router->originator), F_MAC_VAR(router->src));
 					break; // foreach
 				}
 			}
@@ -342,8 +345,39 @@ static void update_tqs() {
 		fclose(f);
 	}
 
-	// look up TQs of originators
+	// Reset max_tq
 	G.max_tq = 0;
+
+	// look up TQs in gateways
+	snprintf(path, PATH_MAX, GATEWAYS, G.mesh_iface);
+	f = fopen(path, "r");
+	while (getline(&line, &len, f) != -1) {
+		if (sscanf(line, "%*3[=> ]" F_MAC " (%hhu) " F_MAC_IGN "[ %*s]: %*f/%*f MBit",
+				F_MAC_VAR(&mac_a), &tq) != 7)
+			continue;
+
+		foreach(router, G.routers) {
+			if (!memcmp(router->originator, mac_a, sizeof(macaddr_t))) {
+				router->tq = tq;
+				DEBUG_MSG("Found TQ=%d for " F_MAC " in gateways",
+					router->tq, F_MAC_VAR(router->src));
+				if (tq > G.max_tq) {
+					G.max_tq = tq;
+					break; // foreach
+				}
+			}
+		}
+	}
+	fclose(f);
+	free(line);
+
+	// if all routers have a TQ value, we don't need to check originators
+	foreach(router, G.routers) {
+		if (router->tq == 0) break; // foreach
+	}
+	if (router == NULL) return;
+
+	// look up TQs in originators
 	snprintf(path, PATH_MAX, ORIGINATORS, G.mesh_iface);
 	f = fopen(path, "r");
 	while (getline(&line, &len, f) != -1) {
@@ -354,6 +388,8 @@ static void update_tqs() {
 		foreach(router, G.routers) {
 			if (!memcmp(router->originator, mac_a, sizeof(macaddr_t))) {
 				router->tq = tq;
+				DEBUG_MSG("Found TQ=%d for " F_MAC " in originators",
+					router->tq, F_MAC_VAR(router->src));
 				if (tq > G.max_tq)
 					G.max_tq = tq;
 				break; // foreach
@@ -361,30 +397,33 @@ static void update_tqs() {
 		}
 	}
 	fclose(f);
+	free(line);
 
 	// if all routers have a TQ value, we don't need to check translocal
 	foreach(router, G.routers) {
-		if (router->tq == 0)
-			break;
+		if (router->tq == 0) break; // foreach
 	}
-	if (router != NULL) {
-		// rate local routers (if present) the highest
-		snprintf(path, PATH_MAX, TRANSTABLE_LOCAL, G.mesh_iface);
-		f = fopen(path, "r");
-		while (getline(&line, &len, f) != -1) {
-			if (sscanf(line, " * " F_MAC "[%*5s] %*f", F_MAC_VAR(&mac_a)) != 6)
-				continue;
+	if (router == NULL) return;
 
-			foreach(router, G.routers) {
-				if (!memcmp(router->src, mac_a, sizeof(macaddr_t))) {
-					router->tq = LOCAL_TQ;
-					G.max_tq = LOCAL_TQ;
-					break; // foreach
-				}
+	// rate local routers (if present) the highest
+	snprintf(path, PATH_MAX, TRANSTABLE_LOCAL, G.mesh_iface);
+	f = fopen(path, "r");
+	while (getline(&line, &len, f) != -1) {
+		if (sscanf(line, " * " F_MAC "[%*5s] %*f", F_MAC_VAR(&mac_a)) != 6)
+			continue;
+
+		foreach(router, G.routers) {
+			if (!memcmp(router->src, mac_a, sizeof(macaddr_t))) {
+				router->tq = LOCAL_TQ;
+				DEBUG_MSG("Found local router " F_MAC "(tq=%d)",
+					F_MAC_VAR(router->src), router->tq);
+				G.max_tq = LOCAL_TQ;
+				break; // foreach
 			}
 		}
-		fclose(f);
 	}
+	fclose(f);
+	free(line);
 
 	foreach(router, G.routers) {
 		if (router->tq == 0) {
@@ -392,7 +431,6 @@ static void update_tqs() {
 		}
 	}
 
-	free(line);
 }
 
 static int fork_execvp_timeout(struct timespec *timeout, const char *file, const char *const argv[]) {
