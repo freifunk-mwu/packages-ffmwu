@@ -1,0 +1,15 @@
+#!/usr/bin/lua
+
+local uci = require('luci.model.uci').cursor()
+
+local branch = uci:get('autoupdater', 'settings', 'branch')
+
+if branch == 'beta' then
+  uci:set('autoupdater', 'settings', 'branch', 'testing')
+end
+
+if uci:get('autoupdater', 'beta') then
+  uci:delete('autoupdater', 'beta')
+end
+
+uci:save('autoupdater')
