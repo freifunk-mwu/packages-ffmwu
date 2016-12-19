@@ -38,16 +38,11 @@
 // max execution time of a single ebtables call in nanoseconds
 #define EBTABLES_TIMEOUT 5e8 // 500ms
 
-// TQ value assigned to local routers
-#define LOCAL_TQ 512
-
 #define BUFSIZE 1500
 
 #define DEBUGFS "/sys/kernel/debug/batman_adv/%s/"
-#define ORIGINATORS DEBUGFS "originators"
 #define GATEWAYS DEBUGFS "gateways"
 #define TRANSTABLE_GLOBAL DEBUGFS "transtable_global"
-#define TRANSTABLE_LOCAL DEBUGFS "transtable_local"
 
 #define F_MAC "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx"
 #define F_MAC_IGN "%*2x:%*2x:%*2x:%*2x:%*2x:%*2x"
@@ -206,8 +201,6 @@ static void parse_cmdline(int argc, char *argv[]) {
 				threshold = strtoul(optarg, &endptr, 10);
 				if (*endptr != '\0')
 					exit_errmsg("Threshold must be a number: %s", optarg);
-				if (threshold >= LOCAL_TQ)
-					exit_errmsg("Threshold too large: %ld (max is %d)", threshold, LOCAL_TQ);
 				G.hysteresis_thresh = (uint16_t) threshold;
 				break;
 			case 'h':
@@ -362,60 +355,6 @@ static void update_tqs() {
 					G.max_tq = tq;
 					break; // foreach
 				}
-			}
-		}
-	}
-	fclose(f);
-	free(line);
-
-	// if all routers have a TQ value, we don't need to check originators
-	foreach(router, G.routers) {
-		if (router->tq == 0) break; // foreach
-	}
-	if (router == NULL) return;
-
-	// look up TQs in originators
-	snprintf(path, PATH_MAX, ORIGINATORS, G.mesh_iface);
-	f = fopen(path, "r");
-	while (getline(&line, &len, f) != -1) {
-		if (sscanf(line, F_MAC " %*fs (%hhu) " F_MAC_IGN "[ %*s]: " F_MAC_IGN " (%*3u)",
-				F_MAC_VAR(&mac_a), &tq) != 7)
-			continue;
-
-		foreach(router, G.routers) {
-			if (!memcmp(router->originator, mac_a, sizeof(macaddr_t))) {
-				router->tq = tq;
-				DEBUG_MSG("Found TQ=%d for " F_MAC " in originators",
-					router->tq, F_MAC_VAR(router->src));
-				if (tq > G.max_tq)
-					G.max_tq = tq;
-				break; // foreach
-			}
-		}
-	}
-	fclose(f);
-	free(line);
-
-	// if all routers have a TQ value, we don't need to check translocal
-	foreach(router, G.routers) {
-		if (router->tq == 0) break; // foreach
-	}
-	if (router == NULL) return;
-
-	// rate local routers (if present) the highest
-	snprintf(path, PATH_MAX, TRANSTABLE_LOCAL, G.mesh_iface);
-	f = fopen(path, "r");
-	while (getline(&line, &len, f) != -1) {
-		if (sscanf(line, " * " F_MAC "[%*5s] %*f", F_MAC_VAR(&mac_a)) != 6)
-			continue;
-
-		foreach(router, G.routers) {
-			if (!memcmp(router->src, mac_a, sizeof(macaddr_t))) {
-				router->tq = LOCAL_TQ;
-				DEBUG_MSG("Found local router " F_MAC "(tq=%d)",
-					F_MAC_VAR(router->src), router->tq);
-				G.max_tq = LOCAL_TQ;
-				break; // foreach
 			}
 		}
 	}
