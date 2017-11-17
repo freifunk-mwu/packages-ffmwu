@@ -37,7 +37,7 @@
 #define MIN_INTERVAL 15
 
 // max execution time of a single ebtables call in nanoseconds
-#define EBTABLES_TIMEOUT 500000000 // 500ms 
+#define EBTABLES_TIMEOUT 500000000 // 500ms
 
 #define BUFSIZE 1500
 
@@ -60,10 +60,6 @@
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(A) (sizeof(A)/sizeof(A[0]))
 #endif
-
-struct list_item {
-	struct list *next;
-};
 
 #define foreach(item, list) \
 	for(item = list; item != NULL; item = item->next)
@@ -89,7 +85,7 @@ struct global {
 };
 
 
-static void error(int status, int errnum, char *message, ...) {
+static void error_message(int status, int errnum, char *message, ...) {
 	va_list ap;
 	va_start(ap, message);
 	fflush(stdout);
@@ -144,11 +140,11 @@ static void usage(const char *msg) {
 
 static inline void exit_errno(const char *message) {
 	cleanup();
-	error(1, errno, "error: %s", message);
+	error_message(1, errno, "error: %s", message);
 }
 
 static inline void warn_errno(const char *message) {
-	error(0, errno, "warning: %s", message);
+	error_message(0, errno, "warning: %s", message);
 }
 
 static int init_packet_socket(unsigned int ifindex) {
@@ -163,7 +159,7 @@ static int init_packet_socket(unsigned int ifindex) {
 		BPF_STMT(BPF_LD|BPF_B|BPF_ABS, sizeof(struct ip6_hdr) + offsetof(struct nd_router_advert, nd_ra_code)),
 		BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K, 0, 0, 3),
 		// check that this is a default route (lifetime > 0)
-		BPF_STMT(BPF_LD|BPF_B|BPF_ABS, sizeof(struct ip6_hdr) + offsetof(struct nd_router_advert, nd_ra_router_lifetime)),
+		BPF_STMT(BPF_LD|BPF_H|BPF_ABS, sizeof(struct ip6_hdr) + offsetof(struct nd_router_advert, nd_ra_router_lifetime)),
 		BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K, 0, 1, 0),
 		// return true
 		BPF_STMT(BPF_RET|BPF_K, 0xffffffff),
@@ -172,8 +168,8 @@ static int init_packet_socket(unsigned int ifindex) {
 	};
 
 	struct sock_fprog radv_filter = {
-	    .len = ARRAY_SIZE(radv_filter_code),
-	    .filter = radv_filter_code,
+		.len = ARRAY_SIZE(radv_filter_code),
+		.filter = radv_filter_code,
 	};
 
 	int sock = socket(AF_PACKET, SOCK_DGRAM|SOCK_CLOEXEC, htons(ETH_P_IPV6));
@@ -292,7 +288,6 @@ static void update_tqs() {
 	size_t len = 0;
 	uint8_t tq;
 	bool update_originators = false;
-	int i;
 	macaddr_t mac_a, mac_b;
 	macaddr_t unspec = {};
 
@@ -315,9 +310,9 @@ static void update_tqs() {
 		f = fopen(path, "r");
 		while (getline(&line, &len, f) != -1) {
 			if (sscanf(line, " * " F_MAC " %*d (%*3u) via " F_MAC " (%*3u) (0x%*4x) [%*3c]",
-					F_MAC_VAR(&mac_a), F_MAC_VAR(&mac_b)) != 12
+					F_MAC_VAR_REF(mac_a), F_MAC_VAR_REF(mac_b)) != 12
 				&& sscanf(line, " * " F_MAC " (%*3u) via " F_MAC " (%*3u) (0x%*4x) [%*3c]",
-					F_MAC_VAR(&mac_a), F_MAC_VAR(&mac_b)) != 12)
+					F_MAC_VAR_REF(mac_a), F_MAC_VAR_REF(mac_b)) != 12)
 				continue;
 
 			foreach(router, G.routers) {
@@ -340,7 +335,7 @@ static void update_tqs() {
 	f = fopen(path, "r");
 	while (getline(&line, &len, f) != -1) {
 		if (sscanf(line, "%*3[=> ]" F_MAC " (%hhu) " F_MAC_IGN "[ %*s]: %*f/%*f MBit",
-				F_MAC_VAR(&mac_a), &tq) != 7)
+				F_MAC_VAR_REF(mac_a), &tq) != 7)
 			continue;
 
 		foreach(router, G.routers) {
@@ -374,22 +369,23 @@ static int fork_execvp_timeout(struct timespec *timeout, const char *file, const
 	sigemptyset(&signals);
 	sigaddset(&signals, SIGCHLD);
 
+	sigprocmask(SIG_BLOCK, &signals, &oldsignals);
 	child = fork();
 	if (child == 0) {
+		sigprocmask(SIG_SETMASK, &oldsignals, NULL);
 		// casting discards const, but should be safe
 		// (see http://stackoverflow.com/q/36925388)
 		execvp(file, (char**) argv);
-		error(1, errno, "can't execvp(\"%s\", ...)", file);
+		error_message(1, errno, "can't execvp(\"%s\", ...)", file);
 	}
 
-	sigprocmask(SIG_BLOCK, &signals, &oldsignals);
 	ret = sigtimedwait(&signals, &info, timeout);
 	sigprocmask(SIG_SETMASK, &oldsignals, NULL);
 
 	if (ret == SIGCHLD) {
 		if (info.si_pid != child) {
 			cleanup();
-			error(1, 0,
+			error_message(1, 0,
 				"BUG: We received a SIGCHLD from a child we didn't spawn (expected PID %d, got %d)",
 				child, info.si_pid);
 		}
@@ -400,11 +396,11 @@ static int fork_execvp_timeout(struct timespec *timeout, const char *file, const
 	}
 
 	if (ret < 0 && errno == EAGAIN)
-		error(0, 0, "warning: child %d took too long, killing", child);
+		error_message(0, 0, "warning: child %d took too long, killing", child);
 	else if (ret < 0)
 		warn_errno("sigtimedwait failed, killing child");
 	else
-		error(1, 0,
+		error_message(1, 0,
 				"BUG: sigtimedwait() return some other signal than SIGCHLD: %d",
 				ret);
 
@@ -449,10 +445,10 @@ static void update_ebtables() {
 
 	if (fork_execvp_timeout(&timeout, "ebtables", (const char *[])
 			{ "ebtables", "-F", G.chain, NULL }))
-		error(0, 0, "warning: flushing ebtables chain %s failed, not adding a new rule", G.chain);
+		error_message(0, 0, "warning: flushing ebtables chain %s failed, not adding a new rule", G.chain);
 	else if (fork_execvp_timeout(&timeout, "ebtables", (const char *[])
 			{ "ebtables", "-A", G.chain, "-s", mac, "-j", "ACCEPT", NULL }))
-		error(0, 0, "warning: adding new rule to ebtables chain %s failed", G.chain);
+		error_message(0, 0, "warning: adding new rule to ebtables chain %s failed", G.chain);
 }
 
 int main(int argc, char *argv[]) {
