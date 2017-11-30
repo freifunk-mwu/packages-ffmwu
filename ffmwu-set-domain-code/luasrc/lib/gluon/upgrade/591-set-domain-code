@@ -1,0 +1,10 @@
+#!/usr/bin/lua
+
+local uci = require('simple-uci').cursor()
+local site = require 'gluon.site_config'
+local site_code = site.site_code
+
+if not uci:get_first('gluon', 'system', 'domain_code') then
+  uci:set('gluon', 'system', 'domain_code', site_code)
+  uci:save('gluon')
+end
