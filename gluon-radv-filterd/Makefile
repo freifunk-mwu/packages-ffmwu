@@ -12,7 +12,7 @@ define Package/gluon-radv-filterd
   SECTION:=gluon
   CATEGORY:=Gluon
   TITLE:=Filter IPv6 router advertisements
-  DEPENDS:=+gluon-ebtables +libgluonutil
+  DEPENDS:=+gluon-ebtables +libgluonutil +libnl-tiny
 endef
 
 define Build/Prepare
