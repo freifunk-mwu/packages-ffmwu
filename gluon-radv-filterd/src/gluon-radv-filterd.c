@@ -75,12 +75,14 @@ struct router {
 struct global {
 	int sock;
 	struct router *routers;
+	const char *iface;
 	const char *mesh_iface;
 	const char *chain;
 	uint16_t max_tq;
 	uint16_t hysteresis_thresh;
 	struct router *best_router;
 } G = {
+	.iface = "br-client",
 	.mesh_iface = "bat0",
 };
 
@@ -374,18 +376,12 @@ int find_tq(const char *mesh_iface, const struct ether_addr *mac,
 
 static void parse_cmdline(int argc, char *argv[]) {
 	int c;
-	unsigned int ifindex;
 	unsigned long int threshold;
 	char *endptr;
 	while ((c = getopt(argc, argv, "c:hi:m:t:")) != -1) {
 		switch (c) {
 			case 'i':
-				if (G.sock != 0)
-					usage("-i given more than once");
-				ifindex = if_nametoindex(optarg);
-				if (ifindex == 0)
-					exit_errmsg("Unknown interface: %s", optarg);
-				G.sock = init_packet_socket(ifindex);
+				G.iface = optarg;
 				break;
 			case 'm':
 				G.mesh_iface = optarg;
@@ -607,6 +603,7 @@ static void update_ebtables() {
 }
 
 int main(int argc, char *argv[]) {
+	unsigned int ifindex;
 	int retval;
 	fd_set rfds;
 	struct timeval tv;
@@ -614,8 +611,10 @@ int main(int argc, char *argv[]) {
 
 	parse_cmdline(argc, argv);
 
-	if (G.sock == 0)
-		usage("No interface set!");
+	ifindex = if_nametoindex(G.iface);
+	if (ifindex == 0)
+		exit_errmsg("Unknown interface: %s", G.iface);
+	G.sock = init_packet_socket(ifindex);
 
 	if (G.chain == NULL)
 		usage("No chain set!");
@@ -635,8 +634,13 @@ int main(int argc, char *argv[]) {
 				handle_ra(G.sock);
 			}
 		}
-		else
-			DEBUG_MSG("select() timeout expired");
+		else {
+			// sometimes nothing is received via the socket
+			// re-initialize socket if this is the case
+			DEBUG_MSG("select() timeout expired; re-init packet socket");
+			ifindex = if_nametoindex(G.iface);
+			G.sock = init_packet_socket(ifindex);
+		}
 
 		if (G.routers != NULL && last_update <= time(NULL) - MIN_INTERVAL) {
 			expire_routers();
